@@ -1,0 +1,125 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "inference-benchmark-backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "inference-benchmark-backend.fullname" . }}
+spec:
+  parallelism: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app: {{ include "inference-benchmark-backend.fullname" . }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: load-generator
+          image: {{ .Values.image.loadGeneratorURI }}:{{ .Values.image.loadGeneratorTag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["fastapi", "run", "app/app.py", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "8" 
+              memory: "16Gi"
+            requests:
+              cpu: "4"
+              memory: "8Gi"
+          env:
+            - name: BENCHMARK_RESULTS_BUCKET
+              value: "inference-benchmark-results"
+            - name: BENCHMARK_RESULTS_DIRECTORY
+              value: "nnodes{{ .Values.replicaCount }}_{{ now | date "2006-01-02T15:04:05Z" }}"
+            - name: SERVED_MODEL
+              value: {{ .Values.servedModel }}
+            - name: HF_TOKEN
+              value: {{ .Values.hfToken }}
+            - name: JOB_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: model-storage-secret
+                  key: accessKeyID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: model-storage-secret
+                  key: secretAccessKey
+            - name: AWS_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: model-storage-secret
+                  key: endpoint
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: model-storage-secret
+                  key: region
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ .Values.image.serverURI }}:{{ .Values.image.serverTag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "152" 
+              memory: "1200Gi"
+              nvidia.com/gpu: 8
+            requests:
+              cpu: "120"
+              memory: "600Gi"
+              nvidia.com/gpu: 8
+          env:
+            - name: SERVED_MODEL
+              value: {{ .Values.servedModel }}
+            - name: HF_TOKEN
+              value: {{ .Values.hfToken }}
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+            - mountPath: /root/.cache/huggingface
+              name: cache-volume
+            - mountPath: /model-storage
+              name: model-storage-volume
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        - name: cache-volume
+          emptyDir: { }
+        - name: model-storage-volume
+          persistentVolumeClaim:
+            claimName: csi-s3-model-storage-pvc-v1 
+            readOnly: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values:
+                      - "1"
+                      - "8"
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
