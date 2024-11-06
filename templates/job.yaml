@@ -70,6 +70,9 @@ spec:
                 secretKeyRef:
                   name: model-storage-secret
                   key: region
+          volumeMounts:
+            - name: benchmark-specs-volume
+              mountPath: /etc/config
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -89,7 +92,7 @@ spec:
               nvidia.com/gpu: 8
           env:
             - name: SERVED_MODEL
-              value: {{ .Values.servedModel }}
+              value: /model-storage/{{ .Values.servedModel }} #model path to load weights
             - name: HF_TOKEN
               value: {{ .Values.hfToken }}
           volumeMounts:
@@ -109,6 +112,9 @@ spec:
           persistentVolumeClaim:
             claimName: csi-s3-model-storage-pvc-v1 
             readOnly: false
+        - name: benchmark-specs-volume
+          configMap:
+            name: benchmark-specs
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

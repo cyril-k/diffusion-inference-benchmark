@@ -3,7 +3,12 @@
 # Declare variables to be passed into your templates.
 
 replicaCount: 2
-servedModel: THUDM/CogVideoX-5b
+servedModel: &model THUDM/CogVideoX-5b
+
+benchmarkSpecs:
+  served_model: *model
+  batch_size_list: [1, 2, 3, 4, 5, 6, 7, 8]
+  num_inference_steps_list: [20, 30, 40, 50, 60, 70, 80, 90, 100]
 
 image:
   pullPolicy: Always
