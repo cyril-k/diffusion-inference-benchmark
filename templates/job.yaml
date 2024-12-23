@@ -41,34 +41,37 @@ spec:
               memory: "8Gi"
           env:
             - name: BENCHMARK_RESULTS_BUCKET
-              value: "inference-benchmark-results"
+              value: {{ .Values.resultBucket }}
             - name: BENCHMARK_RESULTS_DIRECTORY
-              value: "nnodes{{ .Values.replicaCount }}_{{ now | date "2006-01-02T15:04:05Z" }}"
+              value: "{{ .Values.resultDir }}_nnodes{{ .Values.replicaCount }}_{{ now | date "2006-01-02T15:04:05Z" }}"
             - name: SERVED_MODEL
               value: {{ .Values.servedModel }}
             - name: HF_TOKEN
-              value: {{ .Values.hfToken }}
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hfToken
             - name: JOB_NAMESPACE
               value: {{ .Release.Namespace }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: model-storage-secret
+                  name: {{ .Values.objectStorageSecretName }}
                   key: accessKeyID
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: model-storage-secret
+                  name: {{ .Values.objectStorageSecretName }}
                   key: secretAccessKey
             - name: AWS_S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: model-storage-secret
+                  name: {{ .Values.objectStorageSecretName }}
                   key: endpoint
             - name: AWS_REGION
               valueFrom:
                 secretKeyRef:
-                  name: model-storage-secret
+                  name: {{ .Values.objectStorageSecretName }}
                   key: region
           volumeMounts:
             - name: benchmark-specs-volume
@@ -94,7 +97,10 @@ spec:
             - name: SERVED_MODEL
               value: /model-storage/{{ .Values.servedModel }} #model path to load weights
             - name: HF_TOKEN
-              value: {{ .Values.hfToken }}
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hfToken
           volumeMounts:
             - mountPath: /dev/shm
               name: dshm
@@ -108,10 +114,16 @@ spec:
             medium: Memory
         - name: cache-volume
           emptyDir: { }
+        {{- if .Values.sharedStorage.enable }}
+        - name: model-storage-volume
+          persistentVolumeClaim:
+            claimName: {{ include "inference-benchmark-backend.fullname" . }}
+        {{- else }}
         - name: model-storage-volume
           persistentVolumeClaim:
             claimName: csi-s3-model-storage-pvc-v1 
             readOnly: false
+        {{- end }}
         - name: benchmark-specs-volume
           configMap:
             name: benchmark-specs
